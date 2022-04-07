@@ -1,0 +1,8 @@
+# notebook checkpoints:
+.ipynb_checkpoints/
+
+#data files: 
+data/
+*.nc
+*.pkl
+*.npz
