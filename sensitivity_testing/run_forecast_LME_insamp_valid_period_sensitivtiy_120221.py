@@ -1,0 +1,272 @@
+import sys,os
+import xarray as xr
+import numpy as np
+import scipy as spy
+import pickle 
+
+import matplotlib
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+from cartopy.util import add_cyclic_point
+from collections import OrderedDict 
+
+import time as timestamp 
+import importlib
+
+sys.path.append("/home/disk/p/mkb22/Documents/si_analysis_kb/LIMs/SI_LIMs/")
+import LIM_utils as lim
+
+import LIM_utils_kb as limkb
+import LIM_stats_kb as statskb
+import LIM_plot_kb as plotkb
+import LIM_building as limbuild
+
+sys.path.append("/home/disk/kalman2/mkb22/pyLMR/")
+import LMR_utils
+
+import run_forecast_model_data as rf
+
+from datetime import date
+
+today = date.today()
+
+#Year-month-day
+today_date = today.strftime("%Y%m%d")
+
+#--------------------------------------------------
+# START USER PARAMETERS
+#--------------------------------------------------
+# number of EOFs to retain for the LIM state vector
+ntrunc_list = [50]
+#nmodes = 15 # number of coupled EOFs for LIM state space (truncated-state space)
+#nmodes = 20
+nmodes_sic_list = [50]
+#modes_sic = 20
+
+mo='all'
+#mo=0
+
+# forecast lead time in months that defines the LIM training
+tau = 1
+
+#limvars = ['sic']
+limvars_nosic = []
+#nvars= len(limvars)
+
+# specify the model source 
+#train_dsource = 'cmip6_cesm2_hist'
+#train_dsource = 'cmip6_mpi_hist_ssp585'
+#train_dsource ='satellite'
+#train_dsource = 'mpi_hist_kb'
+#train_dsource = 'ccsm4_lm_kb'
+#train_dsource = 'satellite'
+train_dsource = 'cesm_lme'
+# train_dsource = 'era5'
+# valid_dsource = 'era5'
+valid_dsource = 'cesm_lme'
+#valid_dsource = 'satellite'
+#valid_dsource = 'mpi_lm_kb'
+#valid_dsource = 'mpi_lm_kb'
+#valid_dsource = 'cmip6_cesm2_hist'
+
+sic_separate = True
+Insamp = False
+
+exp_setup = {}
+exp_setup['limvars'] = ['tas','psl','zg','tos','sit','sic']
+exp_setup['lat_cutoff'] = 50
+exp_setup['Weight']=True
+exp_setup['remove_climo'] = True
+exp_setup['detrend'] = True
+exp_setup['nyr_train'] = None
+
+lags = [0,1,2,3,4,5,6,7,8]
+
+# era5 settings (out of sample): 
+# exp_setup['nyearsvalid'] = 16
+# exp_setup['nyearstot'] = 42
+# exp_setup['nyears_startvalid'] = 26*12
+
+# era5 settings (in sample):  
+# exp_setup['nyearsvalid'] = 16
+# exp_setup['nyearstot'] = 42
+# exp_setup['nyears_startvalid'] = 1*12
+
+# Satellite settings (out of sample): 
+# exp_setup['nyearsvalid'] = 12
+# exp_setup['nyearstot'] = 38
+# exp_setup['nyears_startvalid'] = 26*12
+
+# Satellite settings (in sample): 
+# exp_setup['nyearsvalid'] = 25
+# exp_setup['nyearstot'] = 38
+# exp_setup['nyears_startvalid'] = 1*12
+
+# Historical settings (out of sample): 
+# exp_setup['nyearsvalid'] = 10
+# exp_setup['nyearstot'] = 164
+# exp_setup['nyears_startvalid'] = 155*12
+
+# # Historical settings (in sample): 
+# exp_setup['nyearsvalid'] = 10
+# exp_setup['nyearstot'] = 164
+# exp_setup['nyears_startvalid'] = 1*12
+
+yrend = 1650
+# LME settings (out of sample): 
+# exp_setup['nyearsvalid'] =100
+# exp_setup['nyearstrain'] = (yrend-850)
+# exp_setup['nyearstot'] = 1155
+# exp_setup['nyears_startvalid'] = 801*12
+
+yrstart_list = [1,100,200,300,400,500,600,700]
+# #LME settings (in sample): 
+exp_setup['nyearsvalid'] = 100
+exp_setup['nyearstrain'] = (yrend-850)
+exp_setup['nyearstot'] = 1155
+
+# LM settings
+# exp_setup['nyearsvalid'] = 10
+# exp_setup['nyearstot'] = 1000
+# exp_setup['nyears_startvalid'] = 900*12
+
+# date_of_interest = '20210910'
+today_date = '20211202'
+
+master_save = False
+save_decomp = False
+
+#--------------------------------------------------
+# END USER PARAMETERS
+#--------------------------------------------------
+
+if 'hist_ssp585' in train_dsource: 
+    folder_add = 'hist_ssp585_concatenated/'
+elif 'hist' in train_dsource: 
+    folder_add = 'historical/'
+elif 'lm' in train_dsource: 
+    folder_add = 'last_millennium/'
+elif 'satellite' in train_dsource: 
+    folder_add = 'satellite/'
+elif 'era5' in train_dsource: 
+    folder_add = 'reanalysis/'
+elif 'lme' in train_dsource: 
+    folder_add = 'last_millennium/'
+
+#mod_folder = '/home/disk/p/mkb22/Documents/si_analysis_kb/LIMs/SI_LIMs/truncated_model_data/'+folder_add
+mod_folder = '/home/disk/kalman2/mkb22/SI_LIMs/truncated_data/'+folder_add
+#save_folder = '/home/disk/p/mkb22/Documents/si_analysis_kb/LIMs/SI_LIMs/sensitivity_testing/neofs/'+folder_add
+save_folder = '/home/disk/kalman2/mkb22/SI_LIMs/sensitivity_testing/nvalid_start_is/'+folder_add
+
+exp_setup['mo'] = mo
+if 'all' in str(mo): 
+    exp_setup['ind_month_trunc'] = False
+else: 
+    exp_setup['ind_month_trunc'] = True
+exp_setup['tau'] = tau
+exp_setup['train_dsource'] = train_dsource
+exp_setup['valid_dsource'] = valid_dsource 
+exp_setup['sic_separate'] = sic_separate
+exp_setup['Insamp'] = Insamp
+exp_setup['mod_folder'] = mod_folder
+exp_setup['lags'] = lags
+exp_setup['Insamp'] = Insamp
+exp_setup['step2_trunc'] = False
+
+month_names = ['Jan','Feb','Mar','Apr','May','June','July','Aug','Sept','Oct','Nov','Dec']
+
+f_folder = save_folder
+ar1f_folder = save_folder
+
+for l,yrstart in enumerate(yrstart_list):
+    
+    exp_setup['nyears_startvalid'] = yrstart*12
+
+    for n,ntrunc in enumerate(ntrunc_list):
+        exp_setup['ntrunc'] = ntrunc 
+        exp_setup['nmodes_sic'] = nmodes_sic_list[n]
+
+#         mod_filename = ('_ntrunc'+str(ntrunc)+'_monthall_'+train_dsource+'_latcutoff_'+
+#                         str(exp_setup['lat_cutoff'])+'_wtTrue_dtTrue_ntrain_1850_2004_20211014.pkl')
+#         mod_filename = ('_ntrunc'+str(ntrunc)+'_monthall_'+train_dsource+'_latcutoff_'+
+#                         str(exp_setup['lat_cutoff'])+'_wtTrue_dtTrue_ntrain_1979_2004_20211014.pkl')
+        mod_filename = ('_ntrunc'+str(ntrunc)+'_002_monthall_'+train_dsource+'_latcutoff_'+
+                         str(exp_setup['lat_cutoff'])+'_wtTrue_dtTrue_ntrain_850_'+str(yrend)+'_20211014.pkl')
+
+#         mod_sic_filename = ('_ntrunc'+str(nmodes_sic_list[n])+'_monthall_'+train_dsource+'_latcutoff_'+
+#                             str(exp_setup['lat_cutoff'])+'_wtTrue_dtTrue_ntrain_1850_2004_20211014.pkl')
+#         mod_sic_filename = ('_ntrunc'+str(nmodes_sic_list[n])+'_monthall_'+train_dsource+'_latcutoff_'+
+#                             str(exp_setup['lat_cutoff'])+'_wtTrue_dtTrue_ntrain_1979_2004_20211014.pkl')
+        mod_sic_filename = ('_ntrunc'+str(nmodes_sic_list[n])+'_002_monthall_'+train_dsource+'_latcutoff_'+
+                            str(exp_setup['lat_cutoff'])+'_wtTrue_dtTrue_ntrain_850_'+str(yrend)+'_20211014.pkl')
+
+        exp_setup['mod_filename'] = mod_filename
+        exp_setup['mod_sic_filename'] = mod_sic_filename
+
+        #--------------------------------------------------
+        ### Build L from truncated data: 
+        #--------------------------------------------------
+
+        LIMd = rf.build_L(exp_setup, save_folder, save=master_save)
+
+        if LIMd['npos_eigenvalues'] >0: 
+            adj = True
+        else: 
+            adj = False
+        exp_setup['adj'] = adj
+
+        #--------------------------------------------------
+        ### Run Forecast: 
+        #--------------------------------------------------
+
+        forecast = rf.run_forecast(LIMd,exp_setup, f_folder, verbose=True, save=master_save, save_decomp=False)
+
+        forecast_validation = rf.validate_forecast_monthly(forecast, exp_setup['limvars'], 1, exp_setup, LIMd, f_folder, 
+                                                           iplot=False, save=master_save)
+
+        forecast_validation_lags = rf.validate_forecast_lagged(forecast, exp_setup['limvars'], exp_setup, LIMd, 
+                                                               f_folder, iplot=False, save=master_save, 
+                                                               detrend_truth=True)
+
+        #--------------------------------------------------
+        ### Run AR1 Forecast: 
+        #--------------------------------------------------
+
+        valid_vars=exp_setup['limvars']
+
+        ar1cast = rf.ar1_forecast_valid_by_month(LIMd['P_train'], forecast['P_train_valid'], LIMd,
+                                                 exp_setup, valid_vars, month_names, ar1f_folder, forecast,
+                                                 lag=None, iplot=False, save=master_save, save_decomp=False)
+
+        ar1cast_lags = rf.ar1_forecast_valid_by_lag(LIMd['P_train'], forecast['P_train_valid'], LIMd, exp_setup, 
+                                                    exp_setup['limvars'], month_names, ar1f_folder, forecast,
+                                                    iplot=False, save=master_save, save_decomp=False,
+                                                    detrend_truth=False)
+
+        #--------------------------------------------------
+        ### Save experiment: 
+        #--------------------------------------------------
+        LIMcast = {}
+        
+        LIMcast['LIMd'] = LIMd
+        LIMcast['forecast'] = forecast
+        LIMcast['forecast_validation'] = forecast_validation
+        LIMcast['forecast_validation_lags'] = forecast_validation_lags
+        LIMcast['ar1cast'] = ar1cast
+        LIMcast['ar1cast_lags'] = ar1cast_lags
+        
+        if save_decomp is False: 
+            if 'x_forecast_dcomp' in LIMcast['forecast'].keys():
+                LIMcast['forecast'].pop('x_forecast_dcomp')
+
+        start_yr = str(forecast['var_dict_valid']['sic']['time'][0])[0:4]
+        end_yr = str(forecast['var_dict_valid']['sic']['time'][-1])[0:4]
+
+        filename_end = (exp_setup['train_dsource']+'_002_ntrain'+exp_setup['mod_filename'][-22:-13]+
+                        '_validyrs_'+start_yr+'_'+end_yr+'_'+
+                        (str(exp_setup['ntrunc'])+"_").join(exp_setup['limvars'])+
+                        str(exp_setup['nmodes_sic'])+'_'+today_date+'.pkl')
+        
+        print('saving in: '+save_folder+'LIMcast_'+filename_end)
+        pickle.dump(LIMcast, open(save_folder+'LIMcast_'+filename_end, "wb" ) )
