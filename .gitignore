@@ -9,3 +9,8 @@ data/
 *.nc
 *.pkl
 *.npz
+
+# figures: 
+figures/
+*.png
+*.pdf
